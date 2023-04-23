@@ -1,0 +1,34 @@
+FROM mcr.microsoft.com/dotnet/sdk:7.0 as buildStage
+ARG DB_FILE_NAME
+WORKDIR /${DB_FILE_NAME}
+COPY ./${DB_FILE_NAME} /${DB_FILE_NAME}
+RUN dotnet build
+   
+FROM mcr.microsoft.com/mssql/server:2022-latest
+ARG DB_FILE_NAME
+ARG DB_PASSWORD
+ENV SA_PASSWORD=${DB_PASSWORD}
+WORKDIR /var/opt/${DB_FILE_NAME}
+COPY --from=buildStage ./${DB_FILE_NAME}/bin/Debug/${DB_FILE_NAME}.dacpac /var/opt/${DB_FILE_NAME}
+USER root
+RUN ( /opt/mssql/bin/sqlservr --accept-eula & ) | grep -q "Service Broker manager has started" \
+    && apt-get update \
+    && wget -q -O /var/opt/sqlpackage.zip https://go.microsoft.com/fwlink/?linkid=2225105 \
+    && apt-get install unzip \
+    && unzip -qq /var/opt/sqlpackage.zip -d /var/opt/sqlpackage \
+    && rm /var/opt/sqlpackage.zip \
+    && chmod +x /var/opt/sqlpackage/sqlpackage  \
+    && /var/opt/sqlpackage/sqlpackage \
+        /Action:Publish \
+        /SourceFile:/var/opt/${DB_FILE_NAME}/${DB_FILE_NAME}.dacpac \
+        /Properties:IncludeCompositeObjects=true \
+        /TargetTrustServerCertificate:true \
+        /TargetDatabaseName:${DB_FILE_NAME} \
+        /TargetServerName:127.0.0.1 \
+        /TargetUser:SA \
+        /TargetPassword:${DB_PASSWORD} \
+    && /opt/mssql-tools/bin/sqlcmd \
+        -S 127.0.0.1 -d ${DB_FILE_NAME} \
+        -U SA -P ${DB_PASSWORD} \
+        -v DB_FILE_NAME=${DB_FILE_NAME} \
+        -Q 'ALTER DATABASE $(DB_FILE_NAME) SET RECOVERY SIMPLE'

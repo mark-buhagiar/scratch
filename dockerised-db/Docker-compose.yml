@@ -1,0 +1,11 @@
+version: '3'
+
+services:
+  db:
+    build:
+      context: .
+      args:
+          DB_FILE_NAME: School
+          DB_PASSWORD: p@ssw0rd!23
+    ports:
+      - 1433:1433
